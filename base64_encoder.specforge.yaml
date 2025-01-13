@@ -1,0 +1,348 @@
+metadata:
+  name: "Base64 Encoder"
+  version: "1.0.0"
+  description: |
+    A minimalistic x86-64 Linux Base64 encoder with the following key requirements:
+    - Complete implementation in x86-64 assembly for Linux
+    - Fixed-size input buffer handling
+    - Proper padding for non-triplet inputs
+    - Robust error handling for system calls
+    - Standard Base64 alphabet usage
+  authors: 
+    - "Ciphernom"
+  date_created: "2024-01-13T10:00:00"
+  last_modified: "2024-01-13T10:00:00"
+  language: "asm"
+  tags:
+    - "encoding"
+    - "assembly"
+    - "linux"
+  dependencies: []
+  license: "MIT"
+
+header_format:
+  border_line: ";============================================================================="
+  file_name_line: "; base64_encoder.asm"
+  description_line: "; A minimalistic x86-64 Linux Base64 encoder"
+  blank_comment: ";"
+  assembly_lines:
+    - ";  Assemble: nasm -f elf64 base64_encoder.asm -o base64_encoder.o"
+    - ";  Link:     ld base64_encoder.o -o base64_encoder"
+    - ";  Usage:    echo -n \"Hello!\" | ./base64_encoder"
+    - ";  Expected: SGVsbG8h"
+  directives:
+    - "BITS 64"
+    - "%define SYS_READ    0"
+    - "%define SYS_WRITE   1"
+    - "%define SYS_EXIT    60"
+    - "%define STDIN       0"
+    - "%define STDOUT      1"
+    - "%define BUF_SIZE    4096"
+
+register_usage:
+  general_purpose:
+    - name: "r8-r11"
+      purpose: "Byte manipulation and staging"
+      byte_regs: ["r8b", "r9b", "r10b", "r11b"]
+      constraints:
+        - "Must use byte registers explicitly for byte operations"
+        - "Must zero-extend explicitly (movzx)"
+        - "No implicit zero extension allowed"
+    - name: "rax"
+      purpose: "Syscalls and temporary storage"
+      constraints:
+        - "Must preserve around syscalls"
+    - name: "rbx"
+      purpose: "Loop counters and triplet_count checking"
+      constraints:
+        - "Must use explicit comparisons"
+    - name: "rcx"
+      purpose: "All counted loops"
+      constraints:
+        - "Must be used as counter register"
+    - name: "rsi/rdi"
+      purpose: "Addressing pairs"
+      constraints:
+        - "Must be used as pairs"
+        - "Must increment explicitly in loops"
+    - name: "r9"
+      purpose: "Triplet offset tracking"
+      constraints:
+        - "Must update by explicit add r9, 3"
+
+structures:
+  base64_table:
+    fields:
+      - name: "table"
+        type: "byte array"
+        description: "Standard Base64 alphabet"
+    documentation: "Contains the Base64 encoding alphabet"
+    constraints:
+      - "Must be exactly 64 bytes"
+      - "Must use standard Base64 alphabet"
+    examples:
+      - "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    complexity:
+      space: "O(1)"
+      lookup: "O(1)"
+
+  input_buffer:
+    fields:
+      - name: "raw_buf"
+        type: "byte array"
+        description: "Buffer for reading input"
+      - name: "leftover_buf"
+        type: "byte array"
+        description: "Store leftover bytes"
+      - name: "leftover_count"
+        type: "qword"
+        description: "Number of leftover bytes"
+    documentation: "Input buffer management structures"
+    constraints:
+      - "raw_buf must be BUF_SIZE (4096) bytes"
+      - "leftover_buf must be 2 bytes"
+      - "leftover_count must be 8 bytes (qword)"
+
+code_organization:
+  section_headers:
+    format: "; ---------------------------------------------------------------------------"
+    usage:
+      - "Must have exactly one hyphen"
+      - "Must have blank line before and after"
+  label_requirements:
+    - "Labels must be flush left (no indentation)"
+    - "All code must be indented 4 spaces from labels"
+    - "Use semi-local labels where possible"
+  function_order:
+    - "exit(rc)"
+    - "_start"
+    - "main_loop"
+  comment_alignment:
+    - "One space after semicolon for regular comments"
+    - "Two spaces after semicolon for aligned comments"
+
+algorithms:
+  base64_encode:
+    description: "Convert binary data to Base64 encoding"
+    implementation_requirements:
+      memory_operations:
+        - "Must use byte-by-byte moves for leftover operations"
+        - "Must use explicit register+offset addressing ([raw_buf + r9])"
+        - "Must increment pointers manually in loops"
+        - "Must use proper sized moves (byte, word, qword) matching data"
+        - "Must reload base64_table address before each lookup"
+        - "Must preserve registers around syscalls"
+      encoding_requirements:
+        - "Must use explicit masks (and rbx, 0x3F) not (and rbx, 63)"
+        - "Must store shifted values in different registers (r10, r11, rbx, r8)"
+        - "Must handle shifts in exact order: 18, 12, 6, 0"
+        - "Must reload base64_table into rsi before lookups"
+      leftover_handling:
+        - "Must calculate offset using imul"
+        - "Must copy using explicit loop"
+        - "Must use byte moves"
+        - "Must handle 1 and 2 byte cases separately"
+      padding_rules:
+        one_byte:
+          - "Two valid base64 chars"
+          - "Two equals signs"
+        two_bytes:
+          - "Three valid base64 chars"
+          - "One equals sign"
+    steps:
+      initialization:
+        - "Initialize leftover_count to 0 using explicit moves"
+        - "Read input in chunks of BUF_SIZE bytes"
+        - "Check for EOF (je finish) before error check (js read_error)"
+      triplet_calculation:
+        - "Clear rdx before division using xor rdx, rdx"
+        - "Use rcx as divisor register"
+        - "Store both quotient and remainder"
+      triplet_processing:
+        - "Load bytes using explicit byte registers and extend"
+        - "Shift and combine bytes in exact order"
+        - "Extract 6-bit chunks in order: 18, 12, 6, 0"
+        - "Mask each chunk with explicit 0x3F"
+        - "Look up in base64_table with fresh table load"
+      leftover_handling:
+        - "Save leftover bytes using byte-by-byte moves"
+        - "Process one or two bytes with proper padding"
+        - "Write output in single syscall"
+      exit_handling:
+        - "All exits must go through exit function with proper code"
+
+error_handling:
+  strategies:
+    syscall_checking:
+      - "Compare to 0 first for EOF"
+      - "Check sign bit for errors"
+    error_paths:
+      - "Use separate error paths for each condition"
+      - "Preserve error codes in rdi"
+      - "Exit through common exit routine"
+  error_types:
+    - name: "syscall_error"
+      description: "System call failed"
+      handling: 
+        - "Set exit code 1 in rdi"
+        - "Jump to exit routine"
+        - "Must preserve error state"
+    - name: "eof"
+      description: "End of input reached"
+      handling:
+        - "Check for pending leftovers"
+        - "Process leftovers if present"
+        - "Exit with code 0 if clean"
+  syscall_requirements:
+    - "Must use correct syscall numbers (0=read, 1=write, 60=exit)"
+    - "Must set up all registers before syscall"
+    - "Must preserve caller-saved registers"
+    - "Must check return values in correct order"
+    - "Must use correct buffer sizes"
+    - "Must write exact number of bytes"
+
+section_requirements:
+  data:
+    - "Must declare base64_table on single line"
+    - "Must use standard alphabet exactly"
+    - "Must be read-only"
+  bss:
+    variables:
+      - name: "raw_buf"
+        size: "BUF_SIZE"
+        align: 1
+        purpose: "Input buffer"
+      - name: "leftover_buf"
+        size: 2
+        align: 1
+        purpose: "Leftover bytes storage"
+      - name: "leftover_count"
+        size: 8
+        align: 8
+        purpose: "Leftover byte counter"
+      - name: "triplet_count"
+        size: 8
+        align: 8
+        purpose: "Full triplet counter"
+      - name: "encoded_block"
+        size: 4
+        align: 1
+        purpose: "Output block"
+  text:
+    organization:
+      - "Must declare _start as global"
+      - "Must organize functions in specified order"
+      - "Must use consistent label formatting"
+    branching:
+      - "Must use near jumps only"
+      - "Must test explicit conditions"
+      - "Must handle EOF before errors"
+      - "Must use correct jump order for leftovers"
+
+performance:
+  time_complexity: "O(n)"
+  space_complexity: "O(1)"
+  constraints:
+    - "Must process input in single pass"
+    - "Must use fixed BUF_SIZE of 4096 bytes"
+    - "Must process data in chunks"
+    - "No dynamic memory allocation"
+    - "Must handle input streams efficiently"
+  register_usage:
+    - "Minimize register spills"
+    - "Use dedicated registers for specific purposes"
+    - "Maintain register consistency throughout"
+  memory_access:
+    - "Sequential access patterns"
+    - "Minimize table reloads"
+    - "Proper alignment for all data"
+  benchmarks:
+    - name: "small_input"
+      input_size: "100 bytes"
+      expected_time: "<1ms"
+      requirements:
+        - "Single read operation"
+        - "No leftover handling"
+    - name: "large_input"
+      input_size: "1MB"
+      expected_time: "<100ms"
+      requirements:
+        - "Multiple chunk processing"
+        - "Consistent performance"
+    - name: "partial_chunks"
+      input_size: "Various non-aligned sizes"
+      requirements:
+        - "Proper leftover handling"
+        - "Consistent padding performance"
+
+testing:
+  unit_tests:
+    - name: "empty_input"
+      input: ""
+      expected_output: ""
+      validation:
+        - "Must exit cleanly"
+        - "Must not write any output"
+    - name: "single_byte"
+      input: "A"
+      expected_output: "QQ=="
+      validation:
+        - "Must handle one leftover byte"
+        - "Must add two padding chars"
+    - name: "two_bytes"
+      input: "AB"
+      expected_output: "QUI="
+      validation:
+        - "Must handle two leftover bytes"
+        - "Must add one padding char"
+    - name: "three_bytes"
+      input: "ABC"
+      expected_output: "QUJD"
+      validation:
+        - "Must handle complete triplet"
+        - "No padding required"
+  integration_tests:
+    - name: "pipe_input"
+      command: "echo -n 'Hello!' | ./base64_encoder"
+      expected: "SGVsbG8h"
+      validation:
+        - "Must handle piped input"
+        - "Must process stream correctly"
+    - name: "error_handling"
+      scenarios:
+        - "Invalid file descriptor"
+        - "Read error"
+        - "Write error"
+      validation:
+        - "Must exit with code 1"
+        - "Must not corrupt output"
+  conformance_tests:
+    - standard: "RFC 4648"
+      test_vectors:
+        - input: ""
+          output: ""
+        - input: "f"
+          output: "Zg=="
+        - input: "fo"
+          output: "Zm8="
+        - input: "foo"
+          output: "Zm9v"
+
+code_style:
+  indentation:
+    - "Labels at column 0"
+    - "Instructions indented 4 spaces"
+    - "Comments aligned within sections"
+  comments:
+    - "Section headers with single hyphen"
+    - "One space after semicolon for descriptions"
+    - "Two spaces after semicolon for aligned comments"
+    - "Blank lines before and after sections"
+  naming:
+    - "Consistent case in labels"
+    - "Descriptive label names"
+    - "Standard register names"
+  organization:
+    - "Group related functionality"
+    - "Maintain consistent structure"
+    - "Follow specified function order"
