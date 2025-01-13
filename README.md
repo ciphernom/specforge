@@ -2,7 +2,7 @@ markdown
 
 # SpecForge
 
-SpecForge is a system currently in development designed to enhance the translation of software intent into implementation through the use of Large Language Models (LLMs). As alpha/beta software, it should be used with caution, understanding that it is still under refinement and may contain bugs or incomplete features.
+SpecForge is an experimental system currently in development designed to enhance the translation of software intent into implementation through the use of Large Language Models (LLMs). As alpha/beta software, it should be used with caution, understanding that it is still under refinement and may contain bugs or incomplete features.
 
 ## Introduction
 
