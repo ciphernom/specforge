@@ -1,0 +1,306 @@
+=== SPECIFICATION ===
+Name: Base64 Encoder
+Version: 1.0.0
+Description: A minimalistic x86-64 Linux Base64 encoder with the following key requirements:
+- Complete implementation in x86-64 assembly for Linux
+- Fixed-size input buffer handling
+- Proper padding for non-triplet inputs
+- Robust error handling for system calls
+- Standard Base64 alphabet usage
+
+
+=== HEADER FORMAT ===
+Border Line: ;=============================================================================
+Assembly Lines:
+  ;  Assemble: nasm -f elf64 base64_encoder.asm -o base64_encoder.o
+  ;  Link:     ld base64_encoder.o -o base64_encoder
+  ;  Usage:    echo -n "Hello!" | ./base64_encoder
+  ;  Expected: SGVsbG8h
+Directives:
+  BITS 64
+  %define SYS_READ    0
+  %define SYS_WRITE   1
+  %define SYS_EXIT    60
+  %define STDIN       0
+  %define STDOUT      1
+  %define BUF_SIZE    4096
+
+=== REGISTER USAGE ===
+Register: r8-r11
+Purpose: Byte manipulation and staging
+Byte Registers: r8b, r9b, r10b, r11b
+Constraints:
+  - Must use byte registers explicitly for byte operations
+  - Must zero-extend explicitly (movzx)
+  - No implicit zero extension allowed
+
+Register: rax
+Purpose: Syscalls and temporary storage
+Constraints:
+  - Must preserve around syscalls
+
+Register: rbx
+Purpose: Loop counters and triplet_count checking
+Constraints:
+  - Must use explicit comparisons
+
+Register: rcx
+Purpose: All counted loops
+Constraints:
+  - Must be used as counter register
+
+Register: rsi/rdi
+Purpose: Addressing pairs
+Constraints:
+  - Must be used as pairs
+  - Must increment explicitly in loops
+
+Register: r9
+Purpose: Triplet offset tracking
+Constraints:
+  - Must update by explicit add r9, 3
+
+=== DATA STRUCTURES ===
+Structure: base64_table
+Documentation: Contains the Base64 encoding alphabet
+Fields:
+  table (byte array): Standard Base64 alphabet
+Constraints:
+  - Must be exactly 64 bytes
+  - Must use standard Base64 alphabet
+
+Structure: input_buffer
+Documentation: Input buffer management structures
+Fields:
+  raw_buf (byte array): Buffer for reading input
+  leftover_buf (byte array): Store leftover bytes
+  leftover_count (qword): Number of leftover bytes
+Constraints:
+  - raw_buf must be BUF_SIZE (4096) bytes
+  - leftover_buf must be 2 bytes
+  - leftover_count must be 8 bytes (qword)
+
+=== ALGORITHMS ===
+Algorithm: base64_encode
+Description: Convert binary data to Base64 encoding
+Implementation Requirements:
+  Memory Operations:
+    - Must use byte-by-byte moves for leftover operations
+    - Must use explicit register+offset addressing ([raw_buf + r9])
+    - Must increment pointers manually in loops
+    - Must use proper sized moves (byte, word, qword) matching data
+    - Must reload base64_table address before each lookup
+    - Must preserve registers around syscalls
+  Encoding Requirements:
+    - Must use explicit masks (and rbx, 0x3F) not (and rbx, 63)
+    - Must store shifted values in different registers (r10, r11, rbx, r8)
+    - Must handle shifts in exact order: 18, 12, 6, 0
+    - Must reload base64_table into rsi before lookups
+  Leftover Handling:
+    - Must calculate offset using imul
+    - Must copy using explicit loop
+    - Must use byte moves
+    - Must handle 1 and 2 byte cases separately
+  Padding Rules:
+    One Byte:
+      - Two valid base64 chars
+      - Two equals signs
+    Two Bytes:
+      - Three valid base64 chars
+      - One equals sign
+Steps:
+  initialization:
+    - Initialize leftover_count to 0 using explicit moves
+    - Read input in chunks of BUF_SIZE bytes
+    - Check for EOF (je finish) before error check (js read_error)
+  triplet_calculation:
+    - Clear rdx before division using xor rdx, rdx
+    - Use rcx as divisor register
+    - Store both quotient and remainder
+  triplet_processing:
+    - Load bytes using explicit byte registers and extend
+    - Shift and combine bytes in exact order
+    - Extract 6-bit chunks in order: 18, 12, 6, 0
+    - Mask each chunk with explicit 0x3F
+    - Look up in base64_table with fresh table load
+  leftover_handling:
+    - Save leftover bytes using byte-by-byte moves
+    - Process one or two bytes with proper padding
+    - Write output in single syscall
+  exit_handling:
+    - All exits must go through exit function with proper code
+
+=== ERROR HANDLING ===
+Strategies:
+  syscall_checking:
+    - Compare to 0 first for EOF
+    - Check sign bit for errors
+  error_paths:
+    - Use separate error paths for each condition
+    - Preserve error codes in rdi
+    - Exit through common exit routine
+Error Types:
+  syscall_error:
+    Description: System call failed
+    Handling:
+      - Set exit code 1 in rdi
+      - Jump to exit routine
+      - Must preserve error state
+  eof:
+    Description: End of input reached
+    Handling:
+      - Check for pending leftovers
+      - Process leftovers if present
+      - Exit with code 0 if clean
+Syscall Requirements:
+  - Must use correct syscall numbers (0=read, 1=write, 60=exit)
+  - Must set up all registers before syscall
+  - Must preserve caller-saved registers
+  - Must check return values in correct order
+  - Must use correct buffer sizes
+  - Must write exact number of bytes
+
+=== SECTION REQUIREMENTS ===
+Data Section:
+  - Must declare base64_table on single line
+  - Must use standard alphabet exactly
+  - Must be read-only
+BSS Section:
+  raw_buf:
+    Size: BUF_SIZE
+    Align: 1
+    Purpose: Input buffer
+  leftover_buf:
+    Size: 2
+    Align: 1
+    Purpose: Leftover bytes storage
+  leftover_count:
+    Size: 8
+    Align: 8
+    Purpose: Leftover byte counter
+  triplet_count:
+    Size: 8
+    Align: 8
+    Purpose: Full triplet counter
+  encoded_block:
+    Size: 4
+    Align: 1
+    Purpose: Output block
+Text Section:
+  organization:
+    - Must declare _start as global
+    - Must organize functions in specified order
+    - Must use consistent label formatting
+  branching:
+    - Must use near jumps only
+    - Must test explicit conditions
+    - Must handle EOF before errors
+    - Must use correct jump order for leftovers
+
+=== PERFORMANCE ===
+Time Complexity: O(n)
+Space Complexity: O(1)
+Constraints:
+  - Must process input in single pass
+  - Must use fixed BUF_SIZE of 4096 bytes
+  - Must process data in chunks
+  - No dynamic memory allocation
+  - Must handle input streams efficiently
+Register Usage:
+  - Minimize register spills
+  - Use dedicated registers for specific purposes
+  - Maintain register consistency throughout
+Memory Access:
+  - Sequential access patterns
+  - Minimize table reloads
+  - Proper alignment for all data
+Benchmarks:
+  small_input:
+    Input Size: 100 bytes
+    Expected Time: <1ms
+    Requirements:
+      - Single read operation
+      - No leftover handling
+  large_input:
+    Input Size: 1MB
+    Expected Time: <100ms
+    Requirements:
+      - Multiple chunk processing
+      - Consistent performance
+  partial_chunks:
+    Input Size: Various non-aligned sizes
+    Requirements:
+      - Proper leftover handling
+      - Consistent padding performance
+
+=== TESTING ===
+Unit Tests:
+  empty_input:
+    Input: 
+    Expected Output: 
+    Validation:
+      - Must exit cleanly
+      - Must not write any output
+  single_byte:
+    Input: A
+    Expected Output: QQ==
+    Validation:
+      - Must handle one leftover byte
+      - Must add two padding chars
+  two_bytes:
+    Input: AB
+    Expected Output: QUI=
+    Validation:
+      - Must handle two leftover bytes
+      - Must add one padding char
+  three_bytes:
+    Input: ABC
+    Expected Output: QUJD
+    Validation:
+      - Must handle complete triplet
+      - No padding required
+Integration Tests:
+  pipe_input:
+    command: echo -n 'Hello!' | ./base64_encoder
+    expected: SGVsbG8h
+    validation:
+      - Must handle piped input
+      - Must process stream correctly
+  error_handling:
+    scenarios:
+      - Invalid file descriptor
+      - Read error
+      - Write error
+    validation:
+      - Must exit with code 1
+      - Must not corrupt output
+Conformance Tests:
+  Standard: RFC 4648
+  Test Vectors:
+    Input: 
+    Output: 
+    Input: f
+    Output: Zg==
+    Input: fo
+    Output: Zm8=
+    Input: foo
+    Output: Zm9v
+
+=== CODE STYLE ===
+Indentation:
+  - Labels at column 0
+  - Instructions indented 4 spaces
+  - Comments aligned within sections
+Comments:
+  - Section headers with single hyphen
+  - One space after semicolon for descriptions
+  - Two spaces after semicolon for aligned comments
+  - Blank lines before and after sections
+Naming:
+  - Consistent case in labels
+  - Descriptive label names
+  - Standard register names
+Organization:
+  - Group related functionality
+  - Maintain consistent structure
+  - Follow specified function order
