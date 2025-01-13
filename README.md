@@ -1,96 +1,56 @@
-markdown
-
 # SpecForge
 
-SpecForge is an experimental system currently in development designed to enhance the translation of software intent into implementation through the use of Large Language Models (LLMs). As alpha/beta software, it should be used with caution, understanding that it is still under refinement and may contain bugs or incomplete features.
+SpecForge is an experimental system for transforming software specifications into implementation through Large Language Models (LLMs). This project represents ongoing research into reliable code generation through precise specification.
 
 ## Introduction
 
-The fundamental issue in programming is not merely syntax, but the translation from intent to executable code. Traditional approaches attempt to build translation layers from English to code, which can be inefficient. Instead, SpecForge uses LLMs as they are, providing them with clear, structured specifications in YAML to guide code generation. This approach is based on our ongoing tests with x86-64 assembly, and while promising, it's still in an experimental phase.
+The fundamental challenge in programming isn't syntax - it's the precise communication of intent. While LLMs can generate code, their output varies in reliability. SpecForge addresses this by providing them with unambiguous, structured specifications that consistently produce working implementations.
 
-## Technical Overview
+We have validated this approach with x86-64 assembly language, demonstrating that properly constrained LLMs can generate complex, working code. The Base64 encoder example included in this repository shows a complete implementation with streaming input, proper padding, and comprehensive error handling - all generated from a SpecForge specification.
 
-SpecForge utilizes a hierarchical model to detail implementation requirements:
+## Core Architecture
 
-- **Metadata, Header Formats, Structure**: This section outlines the program's metadata, how headers should be formatted, and the overall structure, ensuring the purpose and organization of the specification are clear.
+The system processes YAML-based specifications through a hierarchical compiler that enforces completeness and consistency. Each specification captures the full implementation requirements:
 
-- **Register Allocation and Usage**: It specifies how registers should be allocated and used, preventing conflicts and promoting efficiency, which is crucial for systems programming.
+Register allocation constraints define exactly how registers must be used, preventing conflicts and ensuring efficiency. Memory operations and data structures are specified with byte-level precision. Algorithms are broken down into unambiguous steps with explicit requirements for each operation. Error handling paths are fully defined, ensuring robust recovery from all error conditions.
 
-- **Memory Operations and Data Structures**: This defines the exact memory interactions and data structure layouts, essential for ensuring performance and correctness.
+The specification compiler enforces cross-cutting constraints, ensuring that register usage remains consistent across sections and that memory operations maintain proper alignment. Performance requirements are tracked and validated against the implementation details.
 
-- **Algorithm Implementation Requirements**: Breaks down algorithms into precise steps, guiding LLMs to generate logic with minimal ambiguity.
+## Current Limitations
 
-- **Error Handling and Recovery**: Establishes procedures for error management, ensuring that generated code includes robust error handling for reliability.
+As experimental software, SpecForge has important limitations. The specification language is still evolving as we discover new requirements. Code generation reliability varies across different domains and complexity levels. The validation system cannot yet verify all constraints automatically.
 
-- **Section Organization and Layout**: Arranges code into logical sections, enhancing readability and maintainability.
+These limitations reflect the research nature of the project. Users should approach SpecForge as a tool for exploring specification-driven code generation rather than a production-ready system.
 
-- **Performance Constraints**: Sets performance expectations, directing LLMs to create code that meets efficiency standards.
+## Technical Usage
 
-- **Testing Requirements**: Details test cases that must be satisfied, ensuring the generated code's functionality.
-
-- **Code Style and Documentation**: Enforces coding standards and documentation practices for consistency across projects.
-
-Given its developmental stage, users should be aware that the system's capabilities and specifications might evolve.
-
-## Implementation
-
-SpecForge is implemented in Python with the following components:
-
-- **YAML Parser**: Custom validation is employed to check specification completeness, though this feature is still being refined.
-
-- **Specification Compiler**: This enforces consistency within the specifications and generates formal requirements for LLMs, with ongoing improvements to handle edge cases.
-
-- **Output Formats**: Currently supports basic formats for different development workflows, but future updates will expand this.
-
-- **Error Reporting**: Offers detailed feedback on specification errors, though enhancements in clarity are planned.
-
-- **Testing Framework**: Integrated for initial verification, but users are encouraged to add additional tests due to the system's beta nature.
-
-The aim is for integration into existing development processes, but manual adjustments might be necessary at this stage.
-
-## Verification
-
-Our testing with LLMs like Claude has shown that with SpecForge's structured specifications, reliable code can be generated. However, as we are in the beta phase, not all scenarios might be fully supported. The Base64 encoder example serves as a demonstration of current capabilities, but thorough testing is advised before relying on the output in production.
-
-## Applications
-
-SpecForge is intended to be versatile:
-
-- **Systems Programming**: For precise, low-level code where accuracy is critical.
-
-- **API Design**: To generate APIs with well-defined behaviors from specifications.
-
-- **Database Schema and Queries**: Automating the design and querying of databases.
-
-- **Build System Configuration**: To streamline configuration of build processes.
-
-- **Test Suite Generation**: To automate the creation of test cases from specifications.
-
-This system aims to provide LLMs with the constraints needed for effective code generation, though full maturity in these areas is still pending.
-
-## Future Development
-
-Looking ahead, we plan to:
-
-- **Expand Language Support**: Include support for more programming languages as the system matures.
-
-- **IDE Integration**: Enhance user interaction by integrating with development environments, though this is not yet implemented.
-
-- **Specification Versioning**: Implement versioning for managing specification changes, planned for future releases.
-
-- **Automated Test Generation**: Enhancing the system's ability to create tests autonomously.
-  
-- **Performance Validation**: Adding tools to validate performance claims, which is currently under development.
-  
-
-## Getting Started
-To use SpecForge, download the python script, create a YAML specification and run:
+Create a YAML specification following the included schema:
 
 ```bash
-python specforge.py forge spec.yaml
+python specforge.py forge your-project.yaml
 ```
 
-Given its alpha/beta status, users should test the output thoroughly before relying on it in production environments.
+The compiler produces a formal specification suitable for LLM code generation. We recommend using Claude with the specification, as our testing has focused on its capabilities.
 
-## Conclusion
-SpecForge represents a shift towards precise specification for code generation. However, as it is alpha/beta software, users should proceed with caution. The technology has potential, but what remains is to refine the system, validate its capabilities thoroughly, and develop the skills necessary to use it effectively. 
+## Research Goals
+
+This project explores several key questions:
+
+Can we make code generation reliable through specification rather than natural language processing?
+What level of detail is necessary in specifications to ensure consistent results?
+How can we validate specifications automatically?
+What tools can help developers write precise specifications efficiently?
+
+## Future Directions
+
+Current development focuses on specification validation and compiler robustness. We aim to expand language support while maintaining generation reliability. Feedback and contributions are welcome, particularly in areas of specification design and validation.
+
+## License
+
+Released under GPL v3 License - experiment, learn, contribute.
+
+---
+
+The code and specifications in this repository demonstrate current capabilities. They work as shown but may need adaptation for different use cases. We encourage experimentation while maintaining awareness of the system's experimental nature.
+
+For technical discussion or to report findings, please open an issue.
