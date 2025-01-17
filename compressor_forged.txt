@@ -1,0 +1,329 @@
+=== SPECIFICATION ===
+Name: Multithreaded File Compressor/Decompressor
+Version: 2.1.0
+Description: A high-performance multithreaded file compressor and decompressor 
+that leverages parallel processing to quickly and efficiently compress and decompress 
+extremely large files using zlib. Key features include:
+- Multithreading for parallel compression and decompression
+- Chunk-based processing for large files (1MB chunks)
+- Robust error handling for file, compression, and decompression errors
+- Configurable compression levels with zlib
+- File format with magic number (0x436F4D50) and size metadata
+- Refined thread synchronization using mutex and condition variables
+- Ordering guarantees for output reconstruction
+- Unified worker threads for both compression/decompression
+- Modern object oriented design with RAII principles
+- Thoroughly documented algorithm steps and error handling
+- Comprehensive edge case handling
+- Strict file position management and validation
+
+
+=== HEADER FORMAT ===
+Border Line: //=============================================================================
+Assembly Lines:
+Directives:
+  #include <iostream>
+  #include <fstream>
+  #include <thread>
+  #include <vector>
+  #include <queue>
+  #include <mutex>
+  #include <condition_variable>
+  #include <zlib.h>
+  #include <memory>
+  #include <algorithm>
+  #include <stdexcept>
+  #include <cstring>
+  #include <atomic>
+
+=== REGISTER USAGE ===
+=== DATA STRUCTURES ===
+Structure: CompressionTask
+Documentation: Represents a single compression or decompression task for a file chunk
+Fields:
+  input_chunk (std::vector<char>): Buffer holding a chunk of file data to compress
+  output_chunk (std::vector<char>): Buffer to store compressed/decompressed data
+  chunk_index (size_t): Index of the chunk in the file for ordered reconstruction
+  compression_level (int): Compression level to apply (Z_DEFAULT_COMPRESSION by default)
+Constraints:
+  - Input and output buffers must be allocated dynamically
+  - Must support both compression and decompression operations
+  - Must maintain chunk ordering for reconstruction
+
+Structure: CompressionError
+Documentation: Custom exception for compression/decompression errors
+Fields:
+  message (std::string): Error message
+Constraints:
+  - Must inherit from std::runtime_error
+
+Structure: ThreadPool
+Documentation: Manages a pool of threads and distributes compression or decompression tasks
+Fields:
+  mutex (mutable std::mutex): Mutex for thread synchronization
+  condition (std::condition_variable): Condition variable for thread signaling
+  threads (std::vector<std::thread>): Collection of worker threads
+  tasks (std::queue<std::unique_ptr<CompressionTask>>): Queue of pending compression/decompression tasks
+  completed_tasks (std::vector<std::unique_ptr<CompressionTask>>): Vector of completed tasks for ordered processing
+  active_tasks (std::atomic<size_t>): Counter of currently executing tasks
+  stop (bool): Flag to signal thread pool shutdown
+  compression_mode (bool): Flag indicating compression vs decompression mode
+Constraints:
+  - Must handle thread synchronization correctly
+  - Must avoid deadlocks and race conditions
+  - Must implement RAII principles
+  - Must maintain task order via chunk_index
+  - Must handle thread shutdown cleanly
+  - Must not rely on intermediate file position checks
+  - Must calculate all positions relative to header end
+  - Must handle EOF conditions without seeking
+
+=== ALGORITHMS ===
+Algorithm: compress_file_multithreaded
+Description: Compress a file by splitting it into chunks and processing in parallel.
+Implementation Requirements:
+  Memory Operations:
+    - Allocate input and output buffers for each chunk
+    - Use thread-safe task queue management
+    - Implement RAII for resources
+    - Use smart pointers for task management
+  Encoding Requirements:
+    - Use zlib deflate with window bits 15 + 16 for gzip format
+    - Support configurable compression levels
+  Leftover Handling:
+    - Handle last chunk with size < CHUNK_SIZE
+  Padding Rules:
+    One Byte:
+    Two Bytes:
+Steps:
+  initialization:
+    - Open input file and get size
+    - Create output file and write header
+    - Write magic number (0x436F4D50)
+    - Write original file size
+    - Calculate and store constant header_offset
+  task_distribution:
+    - Create thread pool with compression mode
+    - Split file into 1MB chunks
+    - Create and enqueue compression tasks
+  compression_processing:
+    - Initialize zlib stream for each chunk
+    - Set compression parameters
+    - Compress data using deflate
+    - Store compressed data in task
+  metadata_writing:
+    - Write size of each compressed chunk
+    - Write compressed chunk data
+  synchronization:
+    - Track next chunk to write
+    - Maintain order using chunk_index
+    - Process completed tasks in sequence
+  finalization:
+    - Verify all chunks written
+    - Verify output file integrity
+    - Clean up resources
+Edge Cases:
+  - Empty input file
+  - File size not multiple of chunk size
+  - I/O errors during reading/writing
+  - Compression errors from zlib
+  - Memory allocation failures
+  - Thread creation/synchronization failures
+Preconditions:
+  - Input file exists and is readable
+  - Sufficient memory available
+  - Can create output file
+Postconditions:
+  - Output file contains valid compressed data
+  - All resources released
+  - All threads properly joined
+Invariants:
+  - Task queue remains thread-safe
+  - Chunk order maintained in output
+
+Algorithm: decompress_file_multithreaded
+Description: Decompress a file by reading metadata and processing chunks in parallel.
+Implementation Requirements:
+  Memory Operations:
+    - Dynamically size decompression buffers
+    - Use thread-safe task queue
+    - Implement RAII for resources
+    - Use smart pointers for tasks
+  Encoding Requirements:
+    - Use zlib inflate with window bits 15 + 16 for gzip format
+    - Handle dynamic buffer resizing
+  Leftover Handling:
+  Padding Rules:
+    One Byte:
+    Two Bytes:
+Steps:
+  initialization:
+    - Open input file and verify magic number
+    - Read original file size
+    - Create thread pool in decompression mode
+    - Calculate and store constant header_offset
+    - Get total file size with single seek
+    - Reset to header_offset for chunk reading
+  chunk_reading:
+    - Track absolute position from header_offset
+    - Read chunks sequentially without intermediate seeks
+    - Calculate remaining bytes from (file_size - current_position)
+  decompression_processing:
+    - Initialize zlib stream for each chunk
+    - Decompress data with dynamic buffer
+    - Handle buffer resizing if needed
+  synchronization:
+    - Process chunks in order
+    - Track decompressed size
+  finalization:
+    - Verify total size matches header
+    - Clean up resources
+Edge Cases:
+  - Invalid magic number
+  - Corrupt chunk sizes
+  - Decompression errors
+  - Buffer overflow prevention
+Preconditions:
+  - Input is valid compressed file
+  - Has correct magic number
+  - Has valid chunk metadata
+Postconditions:
+  - Output matches original size
+  - All resources cleaned up
+Invariants:
+  - Task queue thread-safe
+  - Chunk order maintained
+
+=== ERROR HANDLING ===
+Strategies:
+  syscall_checking:
+    - Check all file operations
+    - Verify thread operations
+    - Validate compression/decompression
+  error_paths:
+    - Clean up on any failure
+    - Log detailed error info
+    - Use RAII for cleanup
+  position_validation:
+    - Validate file positions after seeks
+    - Handle partial reads near EOF
+    - Detect position corruption
+Error Types:
+  file_io_error:
+    Description: File operation error
+    Handling:
+      - Log error details
+      - Clean up handles
+      - Exit with error
+  compression_error:
+    Description: zlib error
+    Handling:
+      - Log zlib error code
+      - Clean up zlib stream
+  thread_error:
+    Description: Threading error
+    Handling:
+      - Log thread error
+      - Clean up thread pool
+  position_error:
+    Description: File position corruption or invalid seek
+    Handling:
+      - Log absolute and relative positions
+      - Reset to last known good position
+      - Abort if position consistency violated
+Syscall Requirements:
+  - Check all file operations
+  - Handle thread exceptions
+
+=== SECTION REQUIREMENTS ===
+Data Section:
+  - Constants defined at start
+  - Include all headers
+BSS Section:
+  thread_pool:
+    Size: sizeof(ThreadPool)
+    Align: 8
+    Purpose: Thread management
+Text Section:
+  organization:
+    - Start with main()
+    - Group related functions
+  branching:
+    - Early error returns
+    - Exception handling
+
+=== PERFORMANCE ===
+Time Complexity: O(n/p)
+Space Complexity: O(n)
+Constraints:
+  - Process in 1MB chunks
+  - Minimize contention
+  - Efficient threading
+Register Usage:
+Memory Access:
+  - Sequential file I/O
+  - Thread-safe queues
+Benchmarks:
+  small_file:
+    Input Size: 1MB
+    Expected Time: <500ms
+    Requirements:
+      - Single thread ok
+  large_file:
+    Input Size: 1GB
+    Expected Time: <30s
+    Requirements:
+      - Must use threads
+
+=== TESTING ===
+Unit Tests:
+  empty_file:
+    Input: empty.txt
+    Expected Output: empty.z
+    Validation:
+      - Handle empty file
+      - Create valid header
+  small_file:
+    Input: small.txt
+    Expected Output: small.z
+    Validation:
+      - Correct compression
+  seek_validation:
+    Input: large_file.txt
+    Expected Output: large_file.z
+    Validation:
+      - Verify header offset calculation
+      - Validate chunk position tracking
+      - Test EOF handling without seeks
+  position_recovery:
+    Input: corrupt_file.txt
+    Expected Output: recovered.z
+    Validation:
+      - Test position restoration
+      - Verify chunk boundary alignment
+Integration Tests:
+  compress_decompress:
+    command: ./compressor compress in.txt out.z && ./compressor decompress out.z restored.txt
+    validation:
+      - Files match
+Conformance Tests:
+  Standard: Deflate
+  Test Vectors:
+    Input: data1
+    Output: compressed1
+    Input: data2
+    Output: compressed2
+
+=== CODE STYLE ===
+Indentation:
+  - 4 spaces indent
+  - Braces on same line
+Comments:
+  - // for line comments
+  - /** */ for docs
+Naming:
+  - CamelCase classes
+  - snake_case variables
+Organization:
+  - Group related code
+  - Follow C++ standards
