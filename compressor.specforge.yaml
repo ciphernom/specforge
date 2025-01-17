@@ -1,0 +1,417 @@
+metadata:
+  name: "Multithreaded File Compressor/Decompressor"
+  version: "2.1.0"
+  description: |
+    A high-performance multithreaded file compressor and decompressor 
+    that leverages parallel processing to quickly and efficiently compress and decompress 
+    extremely large files using zlib. Key features include:
+    - Multithreading for parallel compression and decompression
+    - Chunk-based processing for large files (1MB chunks)
+    - Robust error handling for file, compression, and decompression errors
+    - Configurable compression levels with zlib
+    - File format with magic number (0x436F4D50) and size metadata
+    - Refined thread synchronization using mutex and condition variables
+    - Ordering guarantees for output reconstruction
+    - Unified worker threads for both compression/decompression
+    - Modern object oriented design with RAII principles
+    - Thoroughly documented algorithm steps and error handling
+    - Comprehensive edge case handling
+    - Strict file position management and validation
+  authors:
+    - "Ciphernom"
+  date_created: "2024-04-27T14:00:00"
+  last_modified: "2024-04-27T15:30:00"
+  language: "cpp"
+  tags:
+    - "compression"
+    - "decompression"
+    - "multithreading"
+    - "performance"
+    - "zlib"
+    - "robust"
+  dependencies:
+    - "zlib"
+    - "pthread"
+  license: "Apache-2.0"
+
+header_format:
+  border_line: "//============================================================================="
+  file_name_line: "// MultithreadedFileCompressor.cpp"
+  description_line: "// A high-performance multithreaded file compressor"
+  blank_comment: "//"
+  assembly_lines: []
+  directives:
+    - "#include <iostream>"
+    - "#include <fstream>"
+    - "#include <thread>"
+    - "#include <vector>"
+    - "#include <queue>"
+    - "#include <mutex>"
+    - "#include <condition_variable>"
+    - "#include <zlib.h>"
+    - "#include <memory>"
+    - "#include <algorithm>"
+    - "#include <stdexcept>"
+    - "#include <cstring>"
+    - "#include <atomic>"
+
+file_format:
+  position_requirements:
+    - "All file position operations must maintain absolute positions"
+    - "Header offset = sizeof(magic_number) + sizeof(file_size)"
+    - "Never perform intermediate seeks during chunk reads"
+    - "Track absolute position from header end"
+    - "Validate against EOF using single seek to end"
+  position_invariants:
+    - "Position must be preserved across chunk size reads"
+    - "No seeking during sequential chunk reads"
+    - "Header position must be constant and well-defined"
+
+register_usage: {}  # Not applicable for C++ programs
+
+structures:
+  CompressionTask:
+    fields:
+      - name: "input_chunk"
+        type: "std::vector<char>"
+        description: "Buffer holding a chunk of file data to compress"
+        constraints:
+          - "Allocated dynamically"
+          - "Size equals CHUNK_SIZE (1MB) for all but last chunk"
+      - name: "output_chunk"
+        type: "std::vector<char>"
+        description: "Buffer to store compressed/decompressed data"
+        constraints:
+          - "Size determined by deflateBound for compression"
+          - "Size managed dynamically for decompression"
+      - name: "chunk_index"
+        type: "size_t"
+        description: "Index of the chunk in the file for ordered reconstruction"
+      - name: "compression_level"
+        type: "int"
+        description: "Compression level to apply (Z_DEFAULT_COMPRESSION by default)"
+    documentation: "Represents a single compression or decompression task for a file chunk"
+    constraints:
+      - "Input and output buffers must be allocated dynamically"
+      - "Must support both compression and decompression operations"
+      - "Must maintain chunk ordering for reconstruction"
+    examples:
+      - "CompressionTask task(0, Z_DEFAULT_COMPRESSION);"
+    complexity:
+      space: "O(n) per chunk"
+      lookup: "O(1)"
+
+  CompressionError:
+    fields:
+      - name: "message"
+        type: "std::string"
+        description: "Error message"
+    documentation: "Custom exception for compression/decompression errors"
+    constraints:
+      - "Must inherit from std::runtime_error"
+    examples:
+      - "throw CompressionError(\"Failed to initialize compression\");"
+    complexity:
+      space: "O(1)"
+      lookup: "O(1)"
+
+  ThreadPool:
+    fields:
+      - name: "mutex"
+        type: "mutable std::mutex"
+        description: "Mutex for thread synchronization"
+      - name: "condition"
+        type: "std::condition_variable"
+        description: "Condition variable for thread signaling"
+      - name: "threads"
+        type: "std::vector<std::thread>"
+        description: "Collection of worker threads"
+      - name: "tasks"
+        type: "std::queue<std::unique_ptr<CompressionTask>>"
+        description: "Queue of pending compression/decompression tasks"
+      - name: "completed_tasks"
+        type: "std::vector<std::unique_ptr<CompressionTask>>"
+        description: "Vector of completed tasks for ordered processing"
+      - name: "active_tasks"
+        type: "std::atomic<size_t>"
+        description: "Counter of currently executing tasks"
+      - name: "stop"
+        type: "bool"
+        description: "Flag to signal thread pool shutdown"
+      - name: "compression_mode"
+        type: "bool"
+        description: "Flag indicating compression vs decompression mode"
+    documentation: "Manages a pool of threads and distributes compression or decompression tasks"
+    constraints:
+      - "Must handle thread synchronization correctly"
+      - "Must avoid deadlocks and race conditions"
+      - "Must implement RAII principles"
+      - "Must maintain task order via chunk_index"
+      - "Must handle thread shutdown cleanly"
+      - "Must not rely on intermediate file position checks"
+      - "Must calculate all positions relative to header end"
+      - "Must handle EOF conditions without seeking"
+    examples:
+      - "ThreadPool pool(std::thread::hardware_concurrency(), true);"
+    complexity:
+      space: "O(m + t) where m is threads and t is tasks"
+      lookup: "O(1)"
+
+algorithms:
+  compress_file_multithreaded:
+    description: "Compress a file by splitting it into chunks and processing in parallel."
+    implementation_requirements:
+      memory_operations:
+        - "Allocate input and output buffers for each chunk"
+        - "Use thread-safe task queue management"
+        - "Implement RAII for resources"
+        - "Use smart pointers for task management"
+      encoding_requirements:
+        - "Use zlib deflate with window bits 15 + 16 for gzip format"
+        - "Support configurable compression levels"
+      leftover_handling:
+        - "Handle last chunk with size < CHUNK_SIZE"
+      padding_rules: {}
+    steps:
+      initialization:
+        - "Open input file and get size"
+        - "Create output file and write header"
+        - "Write magic number (0x436F4D50)"
+        - "Write original file size"
+        - "Calculate and store constant header_offset"
+      task_distribution:
+        - "Create thread pool with compression mode"
+        - "Split file into 1MB chunks"
+        - "Create and enqueue compression tasks"
+      compression_processing:
+        - "Initialize zlib stream for each chunk"
+        - "Set compression parameters"
+        - "Compress data using deflate"
+        - "Store compressed data in task"
+      metadata_writing:
+        - "Write size of each compressed chunk"
+        - "Write compressed chunk data"
+      synchronization:
+        - "Track next chunk to write"
+        - "Maintain order using chunk_index"
+        - "Process completed tasks in sequence"
+      finalization:
+        - "Verify all chunks written"
+        - "Verify output file integrity"
+        - "Clean up resources"
+    complexity:
+      time: "O(n/p) where n is file size and p is threads"
+      space: "O(n)"
+    edge_cases:
+      - "Empty input file"
+      - "File size not multiple of chunk size"
+      - "I/O errors during reading/writing"
+      - "Compression errors from zlib"
+      - "Memory allocation failures"
+      - "Thread creation/synchronization failures"
+    preconditions:
+      - "Input file exists and is readable"
+      - "Sufficient memory available"
+      - "Can create output file"
+    postconditions:
+      - "Output file contains valid compressed data"
+      - "All resources released"
+      - "All threads properly joined"
+    invariants:
+      - "Task queue remains thread-safe"
+      - "Chunk order maintained in output"
+    examples:
+      - command: "./compressor compress input.txt output.z"
+        description: "Basic compression with all features"
+
+  decompress_file_multithreaded:
+    description: "Decompress a file by reading metadata and processing chunks in parallel."
+    implementation_requirements:
+      memory_operations:
+        - "Dynamically size decompression buffers"
+        - "Use thread-safe task queue"
+        - "Implement RAII for resources"
+        - "Use smart pointers for tasks"
+      encoding_requirements:
+        - "Use zlib inflate with window bits 15 + 16 for gzip format"
+        - "Handle dynamic buffer resizing"
+      leftover_handling: []
+      padding_rules: {}
+    steps:
+      initialization:
+        - "Open input file and verify magic number"
+        - "Read original file size"
+        - "Create thread pool in decompression mode"
+        - "Calculate and store constant header_offset"
+        - "Get total file size with single seek"
+        - "Reset to header_offset for chunk reading"
+      chunk_reading:
+        - "Track absolute position from header_offset"
+        - "Read chunks sequentially without intermediate seeks"
+        - "Calculate remaining bytes from (file_size - current_position)"
+      decompression_processing:
+        - "Initialize zlib stream for each chunk"
+        - "Decompress data with dynamic buffer"
+        - "Handle buffer resizing if needed"
+      synchronization:
+        - "Process chunks in order"
+        - "Track decompressed size"
+      finalization:
+        - "Verify total size matches header"
+        - "Clean up resources"
+    complexity:
+      time: "O(n/p)"
+      space: "O(n)"
+    edge_cases:
+      - "Invalid magic number"
+      - "Corrupt chunk sizes"
+      - "Decompression errors"
+      - "Buffer overflow prevention"
+    preconditions:
+      - "Input is valid compressed file"
+      - "Has correct magic number"
+      - "Has valid chunk metadata"
+    postconditions:
+      - "Output matches original size"
+      - "All resources cleaned up"
+    invariants:
+      - "Task queue thread-safe"
+      - "Chunk order maintained"
+    examples:
+      - command: "./compressor decompress in.z out.txt"
+        description: "Basic decompression example"
+
+error_handling:
+  strategies:
+    syscall_checking:
+      - "Check all file operations"
+      - "Verify thread operations"
+      - "Validate compression/decompression"
+    error_paths:
+      - "Clean up on any failure"
+      - "Log detailed error info"
+      - "Use RAII for cleanup"
+    position_validation:
+      - "Validate file positions after seeks"
+      - "Handle partial reads near EOF"
+      - "Detect position corruption"
+  error_types:
+    - name: "file_io_error"
+      description: "File operation error"
+      handling:
+        - "Log error details"
+        - "Clean up handles"
+        - "Exit with error"
+    - name: "compression_error"
+      description: "zlib error"
+      handling:
+        - "Log zlib error code"
+        - "Clean up zlib stream"
+    - name: "thread_error"
+      description: "Threading error"
+      handling:
+        - "Log thread error"
+        - "Clean up thread pool"
+    - name: "position_error"
+      description: "File position corruption or invalid seek"
+      handling:
+        - "Log absolute and relative positions"
+        - "Reset to last known good position"
+        - "Abort if position consistency violated"
+  syscall_requirements:
+    - "Check all file operations"
+    - "Handle thread exceptions"
+
+section_requirements:
+  data:
+    - "Constants defined at start"
+    - "Include all headers"
+  bss:
+    variables:
+      - name: "thread_pool"
+        size: "sizeof(ThreadPool)"
+        align: 8
+        purpose: "Thread management"
+  text:
+    organization:
+      - "Start with main()"
+      - "Group related functions"
+    branching:
+      - "Early error returns"
+      - "Exception handling"
+
+performance:
+  time_complexity: "O(n/p)"
+  space_complexity: "O(n)"
+  constraints:
+    - "Process in 1MB chunks"
+    - "Minimize contention"
+    - "Efficient threading"
+  register_usage: []
+  memory_access:
+    - "Sequential file I/O"
+    - "Thread-safe queues"
+  benchmarks:
+    - name: "small_file"
+      input_size: "1MB"
+      expected_time: "<500ms"
+      requirements:
+        - "Single thread ok"
+    - name: "large_file"
+      input_size: "1GB"
+      expected_time: "<30s"
+      requirements:
+        - "Must use threads"
+
+testing:
+  unit_tests:
+    - name: "empty_file"
+      input: "empty.txt"
+      expected_output: "empty.z"
+      validation:
+        - "Handle empty file"
+        - "Create valid header"
+    - name: "small_file"
+      input: "small.txt"
+      expected_output: "small.z"
+      validation:
+        - "Correct compression"
+    - name: "seek_validation"
+      input: "large_file.txt"
+      expected_output: "large_file.z"
+      validation:
+        - "Verify header offset calculation"
+        - "Validate chunk position tracking"
+        - "Test EOF handling without seeks"
+    - name: "position_recovery"
+      input: "corrupt_file.txt"
+      expected_output: "recovered.z"
+      validation:
+        - "Test position restoration"
+        - "Verify chunk boundary alignment"
+  integration_tests:
+    - name: "compress_decompress"
+      command: "./compressor compress in.txt out.z && ./compressor decompress out.z restored.txt"
+      validation:
+        - "Files match"
+  conformance_tests:
+    - standard: "Deflate"
+      test_vectors:
+        - input: "data1"
+          output: "compressed1"
+        - input: "data2"
+          output: "compressed2"
+
+code_style:
+  indentation:
+    - "4 spaces indent"
+    - "Braces on same line"
+  comments:
+    - "// for line comments"
+    - "/** */ for docs"
+  naming:
+    - "CamelCase classes"
+    - "snake_case variables"
+  organization:
+    - "Group related code"
+    - "Follow C++ standards"
