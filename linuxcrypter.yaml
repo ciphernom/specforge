@@ -1,0 +1,288 @@
+metadata:
+  name: "LinuxCrypter"
+  version: "1.0.0"
+  description: >
+    A high performance encryption/decryption tool for Linux,
+    competitive with platforms like E4M and TrueCrypt.
+    Designed for modern hardware, it utilizes SIMD and inline assembly
+    in performance-critical sections while providing a clean C interface.
+  language: "c"
+  authors:
+    - "Your Name"
+    - "Contributor Name"
+  date_created: "2025-02-02T12:00:00"
+
+header_format:
+  border_line: "/*============================================================*/"
+  file_name_line: "/* LinuxCrypter.c */"
+  description_line: "/* High performance encryption/decryption tool for Linux */"
+  blank_comment: "/*                                                          */"
+  assembly_lines: []
+  directives:
+    - "#include <stdio.h>"
+    - "#include <stdlib.h>"
+    - "#include <string.h>"
+    - "#include <stdint.h>"
+    - "#include <immintrin.h>  // For SIMD operations"
+
+register_usage:
+  general_purpose:
+    - name: "rdi/rsi"
+      purpose: "Input/output buffer addressing in critical loops"
+      constraints:
+        - "Must be used as pointer pairs for 64-bit operations"
+    - name: "rcx"
+      purpose: "Loop counter for block processing"
+      constraints:
+        - "Reserved exclusively for counted loops in encryption/decryption core"
+    - name: "xmm0-xmm7"
+      purpose: "SIMD registers for parallel block processing"
+      constraints:
+        - "Must be preserved around function calls and inline assembly sections"
+
+structures:
+  EncryptionContext:
+    fields:
+      - name: "key"
+        type: "uint8_t[32]"
+        description: "256-bit encryption key for AES-256 or similar algorithm"
+        constraints:
+          - "Must be aligned to 16 bytes"
+      - name: "iv"
+        type: "uint8_t[16]"
+        description: "Initialization vector for block modes (e.g., CBC, CTR)"
+        constraints:
+          - "Must be aligned to 16 bytes"
+      - name: "mode"
+        type: "int"
+        description: "Mode of operation (e.g., 1 for CBC, 2 for CTR)"
+    documentation: >
+      Holds all parameters necessary for encryption/decryption.
+      The key and IV must be securely initialized before use.
+    constraints:
+      - "Key and IV must be provided and correctly aligned"
+    examples:
+      - "EncryptionContext ctx = { .key = {0x00, ...}, .iv = {0x00, ...}, .mode = 1 };"
+    complexity:
+      space: "O(1)"
+      access: "O(1)"
+
+  DataBuffer:
+    fields:
+      - name: "data"
+        type: "uint8_t *"
+        description: "Pointer to input or output data"
+      - name: "length"
+        type: "size_t"
+        description: "Length of the data in bytes"
+    documentation: "Generic buffer for passing plaintext or ciphertext to the algorithms"
+    constraints:
+      - "Pointer must refer to allocated memory with proper alignment"
+    examples:
+      - "DataBuffer buf = { .data = buffer, .length = buffer_length };"
+    complexity:
+      space: "O(1)"
+      access: "O(1)"
+
+algorithms:
+  EncryptData:
+    description: >
+      Encrypts input data using the provided EncryptionContext.
+      Processes data in fixed-size blocks (16 bytes) using SIMD instructions,
+      applying PKCS#7 padding when necessary.
+    implementation_requirements:
+      memory_operations:
+        - "Process data in 16-byte blocks for optimal SIMD performance"
+        - "Ensure in-place encryption does not corrupt overlapping data"
+      encoding_requirements:
+        - "Apply PKCS#7 padding if input length is not a multiple of 16 bytes"
+      leftover_handling:
+        - "Process the final block with proper padding rules"
+      padding_rules:
+        one_byte:
+          - "If a single byte is needed, pad with 0x01"
+        two_bytes:
+          - "If two bytes are needed, pad with 0x02 each"
+    steps:
+      initialization:
+        - "Validate that EncryptionContext and DataBuffer are properly initialized"
+        - "Set data pointer to start of DataBuffer"
+      main_loop:
+        - "For each 16-byte block, load data into SIMD registers"
+        - "Perform encryption using SIMD instructions and inline assembly if required"
+        - "Store the encrypted block back to the output buffer"
+        - "Increment pointers and decrement the remaining length"
+      cleanup:
+        - "Apply PKCS#7 padding to the final block if needed"
+        - "Clear temporary registers and buffers to remove sensitive data"
+    complexity:
+      time: "O(n)"
+      space: "O(1)"
+    edge_cases:
+      - "Empty input should result in no operation"
+      - "Input not a multiple of block size must be padded"
+    preconditions:
+      - "EncryptionContext must be initialized with a valid key and IV"
+      - "DataBuffer must point to valid memory with a specified length"
+    postconditions:
+      - "Ciphertext is produced either in-place or in a designated output buffer"
+    invariants:
+      - "Block boundaries are preserved and not overlapped"
+    examples:
+      - "EncryptData(&ctx, &inputBuffer);"
+
+  DecryptData:
+    description: >
+      Decrypts input ciphertext using the provided EncryptionContext.
+      Processes ciphertext in 16-byte blocks with SIMD acceleration,
+      verifying and removing PKCS#7 padding upon completion.
+    implementation_requirements:
+      memory_operations:
+        - "Process ciphertext in 16-byte blocks using SIMD instructions"
+        - "Ensure buffers are not overrun during decryption"
+      encoding_requirements:
+        - "Verify PKCS#7 padding post-decryption and remove it"
+      leftover_handling:
+        - "Trigger error handling if padding is found to be invalid"
+      padding_rules:
+        one_byte:
+          - "Expect 0x01 for single-byte padding"
+        two_bytes:
+          - "Expect 0x02 for two-byte padding (repeated)"
+    steps:
+      initialization:
+        - "Validate EncryptionContext and DataBuffer containing ciphertext"
+        - "Set pointer to start of the ciphertext buffer"
+      main_loop:
+        - "For each 16-byte block, load ciphertext into SIMD registers"
+        - "Perform decryption using SIMD instructions and inline assembly where applicable"
+        - "Store the resulting plaintext block in the output buffer"
+        - "Update pointers and counters"
+      cleanup:
+        - "Verify and remove PKCS#7 padding from the final block"
+        - "Clear sensitive temporary buffers and registers"
+    complexity:
+      time: "O(n)"
+      space: "O(1)"
+    edge_cases:
+      - "Ciphertext with invalid padding must trigger a padding_error"
+      - "Empty input should be handled gracefully"
+    preconditions:
+      - "EncryptionContext must be initialized with a valid key and IV"
+      - "DataBuffer must contain properly block-aligned ciphertext"
+    postconditions:
+      - "Plaintext is recovered either in-place or into a separate buffer"
+    invariants:
+      - "EncryptionContext (key and IV) remains unchanged during decryption"
+    examples:
+      - "DecryptData(&ctx, &ciphertextBuffer);"
+
+error_handling:
+  strategies:
+    syscall_errors:
+      - "Check return values for all system calls (if used for I/O)"
+      - "Log error details and abort the operation on critical failures"
+    memory_errors:
+      - "Validate all memory allocations before usage"
+      - "Abort and log error if memory allocation fails"
+    padding_errors:
+      - "If PKCS#7 padding is invalid during decryption, trigger error handling"
+      - "Zero out sensitive memory areas before exiting"
+  error_types:
+    - name: "invalid_key"
+      description: "EncryptionContext contains an invalid or uninitialized key"
+      handling:
+        - "Return an error code and log the incident"
+        - "Abort the encryption/decryption operation"
+    - name: "buffer_overflow"
+      description: "Detected buffer overflow in input or output buffers"
+      handling:
+        - "Abort the operation immediately and log the error"
+    - name: "padding_error"
+      description: "Invalid or corrupt padding encountered during decryption"
+      handling:
+        - "Return an error code, log the error, and clear sensitive data"
+  syscall_requirements:
+    - "For any direct system calls (if applicable), check error codes and set errno appropriately"
+
+section_requirements:
+  data:
+    - "Constants and lookup tables (e.g., S-boxes for AES) must be declared in the data section as read-only"
+  bss:
+    variables:
+      - name: "temp_buffer"
+        size: "16  # BLOCK_SIZE in bytes"
+        align: 16
+        purpose: "Temporary workspace for block encryption/decryption"
+  text:
+    initialization:
+      - "Initialize environment and validate input parameters"
+    encryption_core:
+      - "Implement the core encryption loop in optimized C with inline assembly for SIMD acceleration"
+    decryption_core:
+      - "Implement the core decryption loop similarly, ensuring safe removal of padding"
+
+performance:
+  time_complexity: "O(n)"
+  space_complexity: "O(1)"
+  constraints:
+    - "Data must be processed in a single pass to optimize throughput"
+    - "Block processing should maximize cache utilization and minimize latency"
+    - "Hot paths must use inline assembly/SIMD instructions where appropriate"
+  register_usage:
+    - "Minimize register spills by dedicating registers for loop counters and buffer pointers"
+  memory_access:
+    - "Sequential memory access patterns are required to enable efficient prefetching"
+  benchmarks:
+    - name: "Encryption Throughput"
+      input_size: "1GB"
+      expected_time: "Under 0.5 seconds on modern hardware"
+      requirements:
+        - "Achieve a minimum throughput of 2GB/s during encryption"
+    - name: "Decryption Throughput"
+      input_size: "1GB"
+      expected_time: "Under 0.5 seconds on modern hardware"
+      requirements:
+        - "Achieve a minimum throughput of 2GB/s during decryption"
+
+testing:
+  unit_tests:
+    - name: "empty_input"
+      input: ""
+      expected_output: ""
+      validation:
+        - "Operation should complete without error and produce no output"
+    - name: "single_block_encryption"
+      input: "16 bytes of data"
+      expected_output: "encrypted 16 bytes"
+      validation:
+        - "Output must be exactly 16 bytes after encryption"
+    - name: "partial_block_padding"
+      input: "data not multiple of 16 bytes"
+      expected_output: "encrypted data with correct PKCS#7 padding applied"
+      validation:
+        - "Padding must be correctly calculated and appended"
+    - name: "invalid_padding_decryption"
+      input: "corrupted ciphertext with invalid padding"
+      expected_output: "error"
+      validation:
+        - "Should trigger the padding_error error handler"
+  integration_tests:
+    - name: "file_encryption_decryption"
+      command: "./linuxcrypter -e input.txt output.enc && ./linuxcrypter -d output.enc decrypted.txt"
+      expected: "decrypted.txt matches input.txt exactly"
+      validation:
+        - "Verify file integrity by comparing checksums of input.txt and decrypted.txt"
+
+code_style:
+  indentation:
+    - "Use 4 spaces per indentation level"
+  comments:
+    - "Each function must have a header comment explaining its purpose, parameters, and return values"
+    - "Inline comments should be used sparingly to clarify complex logic"
+  naming:
+    - "Functions and variables should use snake_case notation"
+    - "Constants and macros should be defined in uppercase letters"
+  organization:
+    - "Modularize code into separate source files (e.g., encryption.c, decryption.c, crypto_utils.c)"
+    - "Define clear header files (.h) for public interfaces and data structure declarations"
